@@ -3,6 +3,7 @@ using System;
 using Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260702135338_RenameRobloxServerIdToJoinCode")]
+    partial class RenameRobloxServerIdToJoinCode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
@@ -38,33 +41,6 @@ namespace Backend.Data.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Backend.Data.Models.JoinRequest", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ServerId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServerId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("JoinRequests");
-                });
-
             modelBuilder.Entity("Backend.Data.Models.MemberRole", b =>
                 {
                     b.Property<Guid>("MemberId")
@@ -81,50 +57,6 @@ namespace Backend.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("MemberRoles");
-                });
-
-            modelBuilder.Entity("Backend.Data.Models.ModerationLog", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ActionType")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid>("ActorId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Evidence")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ServerId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TargetUserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TargetUsername")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActorId");
-
-                    b.HasIndex("ServerId");
-
-                    b.ToTable("ModerationLogs");
                 });
 
             modelBuilder.Entity("Backend.Data.Models.RefreshToken", b =>
@@ -250,25 +182,6 @@ namespace Backend.Data.Migrations
                     b.ToTable("ServerMembers");
                 });
 
-            modelBuilder.Entity("Backend.Data.Models.JoinRequest", b =>
-                {
-                    b.HasOne("Backend.Data.Models.Server", "Server")
-                        .WithMany()
-                        .HasForeignKey("ServerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Backend.Data.Models.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Server");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Backend.Data.Models.MemberRole", b =>
                 {
                     b.HasOne("Backend.Data.Models.ServerMember", "Member")
@@ -286,25 +199,6 @@ namespace Backend.Data.Migrations
                     b.Navigation("Member");
 
                     b.Navigation("Role");
-                });
-
-            modelBuilder.Entity("Backend.Data.Models.ModerationLog", b =>
-                {
-                    b.HasOne("Backend.Data.Models.ApplicationUser", "Actor")
-                        .WithMany()
-                        .HasForeignKey("ActorId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Backend.Data.Models.Server", "Server")
-                        .WithMany()
-                        .HasForeignKey("ServerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Actor");
-
-                    b.Navigation("Server");
                 });
 
             modelBuilder.Entity("Backend.Data.Models.RefreshToken", b =>

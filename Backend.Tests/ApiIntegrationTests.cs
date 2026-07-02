@@ -3,12 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Backend.Models;
 using Backend.Services;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Backend.Tests;
 
-public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public class ApiIntegrationTests : IClassFixture<CustomWebApplicationFactory>
 {
     private readonly HttpClient _client;
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -16,13 +14,9 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         PropertyNameCaseInsensitive = false
     };
 
-    public ApiIntegrationTests(WebApplicationFactory<Program> factory)
+    public ApiIntegrationTests(CustomWebApplicationFactory factory)
     {
-        _client = factory.WithWebHostBuilder(builder =>
-        {
-            builder.UseContentRoot(Path.GetFullPath(Path.Combine(
-                Directory.GetCurrentDirectory(), "..", "..", "..", "..", "Backend")));
-        }).CreateClient();
+        _client = factory.CreateClient();
     }
 
     private string UniqueName(string prefix) => $"{prefix}_{Guid.NewGuid():N}"[..20];
@@ -186,7 +180,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     {
         var token = await GetAccessToken(UniqueName("listuser"));
 
-        var response = await GetAuthenticatedAsync("/applicationusers", token);
+        var response = await GetAuthenticatedAsync("/users", token);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
@@ -199,7 +193,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var token = await GetAccessToken(UniqueName("getbyid"));
 
         var response = await GetAuthenticatedAsync(
-            "/applicationusers/00000000-0000-0000-0000-000000000000", token);
+            "/users/00000000-0000-0000-0000-000000000000", token);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
@@ -212,7 +206,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     {
         var token = await GetAccessToken(UniqueName("createby"));
 
-        var response = await PostAuthenticatedAsync("/applicationusers", token, new
+        var response = await PostAuthenticatedAsync("/users", token, new
         {
             UserName = UniqueName("newuser"),
             Password = "Test123!"
@@ -225,16 +219,15 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task DeleteUser_NotFound_Returns404()
+    public async Task DeleteUser_ReturnsOk()
     {
         var token = await GetAccessToken(UniqueName("deltest"));
 
-        var response = await DeleteAuthenticatedAsync(
-            "/applicationusers/00000000-0000-0000-0000-000000000000", token);
+        var response = await DeleteAuthenticatedAsync("/users", token);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ApiResponse<object>>(JsonOptions);
-        Assert.Equal(404, body!.StatusCode);
+        Assert.Equal(204, body!.StatusCode);
     }
 
     [Fact]
@@ -242,18 +235,8 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     {
         var token = await GetAccessToken(UniqueName("updateuser"));
 
-        // First create user
-        var userResponse = await PostAuthenticatedAsync("/applicationusers", token, new
-        {
-            UserName = UniqueName("user"),
-            Password = "Test123!"
-        });
-        var user = await userResponse.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        var userId = user!.Data.GetProperty("Id").GetString();
-
-        // Then update
         var newName = UniqueName("newname");
-        var response = await PutAuthenticatedAsync($"/applicationusers/{userId}", token, new
+        var response = await PutAuthenticatedAsync("/users", token, new
         {
             UserName = newName
         });
@@ -439,30 +422,29 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task AddMember_ReturnsOk()
+    public async Task JoinAndAccept_ReturnsOk()
     {
-        var (token, serverId) = await CreateServerAndGetId(UniqueName("srvaddm"));
-        var otherToken = await GetAccessToken(UniqueName("memberuser"));
+        var (token, serverId) = await CreateServerAndGetId(UniqueName("srvjoin"));
+        var otherToken = await GetAccessToken(UniqueName("joiner"));
 
-        var membersBody = await (await GetAuthenticatedAsync($"/servers/{serverId}/members", token))
-            .Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        var ownerMemberId = membersBody!.Data[0].GetProperty("Id").GetString()!;
+        var serverResp = await GetAuthenticatedAsync($"/servers/{serverId}", token);
+        var serverBody = await serverResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        var joinCode = serverBody!.Data.GetProperty("JoinCode").GetString()!;
 
-        var rolesResp = await GetAuthenticatedAsync($"/servers/{serverId}/members/{ownerMemberId}/roles", token);
-        var rolesBody = await rolesResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        Assert.True(rolesBody!.Data.GetArrayLength() > 0,
-            "Owner should have at least one role assigned on server creation");
+        var joinResp = await PostAuthenticatedAsync($"/servers/join/{joinCode}", otherToken, new { });
+        Assert.Equal(HttpStatusCode.OK, joinResp.StatusCode);
+        var joinBody = await joinResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        Assert.Equal(200, joinBody!.StatusCode);
+
+        var requestId = joinBody.Data.GetProperty("Id").GetString()!;
+
+        var acceptResp = await PostAuthenticatedAsync($"/servers/{serverId}/join-requests/{requestId}/accept", token, new { });
+        Assert.Equal(HttpStatusCode.OK, acceptResp.StatusCode);
+        var acceptBody = await acceptResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        Assert.Equal(200, acceptBody!.StatusCode);
 
         var otherUserId = GetUserIdFromToken(otherToken);
-        var response = await PostAuthenticatedAsync($"/servers/{serverId}/members", token, new
-        {
-            UserId = otherUserId
-        });
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        Assert.Equal(200, body!.StatusCode);
-        Assert.Equal(otherUserId, body.Data.GetProperty("UserId").GetString());
+        Assert.Equal(otherUserId, acceptBody.Data.GetProperty("UserId").GetString());
     }
 
     [Fact]
@@ -472,7 +454,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var otherToken = await GetAccessToken(UniqueName("removeme"));
 
         var otherUserId = GetUserIdFromToken(otherToken);
-        await PostAuthenticatedAsync($"/servers/{serverId}/members", token, new { UserId = otherUserId });
+        await AddMemberViaJoinAsync(token, serverId, otherToken);
 
         var response = await DeleteAuthenticatedAsync($"/servers/{serverId}/members/{otherUserId}", token);
 
@@ -552,10 +534,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var (token, serverId) = await CreateServerAndGetId(UniqueName("srvarm"));
         var otherToken = await GetAccessToken(UniqueName("assignee"));
 
-        var otherUserId = GetUserIdFromToken(otherToken);
-        var addResp = await PostAuthenticatedAsync($"/servers/{serverId}/members", token, new { UserId = otherUserId });
-        var addBody = await addResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        var memberId = addBody!.Data.GetProperty("Id").GetString()!;
+        var memberId = await AddMemberViaJoinAsync(token, serverId, otherToken);
 
         var rolesResp = await GetAuthenticatedAsync($"/servers/{serverId}/roles", token);
         var rolesBody = await rolesResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
@@ -579,10 +558,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var (token, serverId) = await CreateServerAndGetId(UniqueName("srvrrm"));
         var otherToken = await GetAccessToken(UniqueName("remrole"));
 
-        var otherUserId = GetUserIdFromToken(otherToken);
-        var addResp = await PostAuthenticatedAsync($"/servers/{serverId}/members", token, new { UserId = otherUserId });
-        var addBody = await addResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
-        var memberId = addBody!.Data.GetProperty("Id").GetString()!;
+        var memberId = await AddMemberViaJoinAsync(token, serverId, otherToken);
 
         var rolesResp = await GetAuthenticatedAsync($"/servers/{serverId}/roles", token);
         var rolesBody = await rolesResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
@@ -618,8 +594,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var (ownerToken, serverId) = await CreateServerAndGetId(UniqueName("permdeny"));
         var memberToken = await GetAccessToken(UniqueName("normiem"));
 
-        var memberUserId = GetUserIdFromToken(memberToken);
-        await PostAuthenticatedAsync($"/servers/{serverId}/members", ownerToken, new { UserId = memberUserId });
+        await AddMemberViaJoinAsync(ownerToken, serverId, memberToken);
 
         var response = await PutAuthenticatedAsync($"/servers/{serverId}", memberToken, new
         {
@@ -635,8 +610,7 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         var (ownerToken, serverId) = await CreateServerAndGetId(UniqueName("permdn2"));
         var memberToken = await GetAccessToken(UniqueName("normie2"));
 
-        var memberUserId = GetUserIdFromToken(memberToken);
-        await PostAuthenticatedAsync($"/servers/{serverId}/members", ownerToken, new { UserId = memberUserId });
+        await AddMemberViaJoinAsync(ownerToken, serverId, memberToken);
 
         var response = await PostAuthenticatedAsync($"/servers/{serverId}/roles", memberToken, new
         {
@@ -723,5 +697,20 @@ public class ApiIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         }
 
         throw new InvalidOperationException($"Role '{name}' not found");
+    }
+
+    private async Task<string> AddMemberViaJoinAsync(string ownerToken, string serverId, string memberToken)
+    {
+        var serverResp = await GetAuthenticatedAsync($"/servers/{serverId}", ownerToken);
+        var serverBody = await serverResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        var joinCode = serverBody!.Data.GetProperty("JoinCode").GetString()!;
+
+        var joinResp = await PostAuthenticatedAsync($"/servers/join/{joinCode}", memberToken, new { });
+        var joinBody = await joinResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        var requestId = joinBody!.Data.GetProperty("Id").GetString()!;
+
+        var acceptResp = await PostAuthenticatedAsync($"/servers/{serverId}/join-requests/{requestId}/accept", ownerToken, new { });
+        var acceptBody = await acceptResp.Content.ReadFromJsonAsync<ApiResponse<JsonElement>>(JsonOptions);
+        return acceptBody!.Data.GetProperty("Id").GetString()!;
     }
 }

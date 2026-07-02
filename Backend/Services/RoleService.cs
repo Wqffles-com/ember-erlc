@@ -1,10 +1,12 @@
+using System.Security.Claims;
 using Backend.Data;
 using Backend.Data.Models;
+using Backend.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Services;
 
-public class RoleService(ApplicationDbContext context) : IRoleService
+public class RoleService(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor) : IRoleService
 {
     public async Task<List<Role>> GetAllForServerAsync(Guid serverId)
     {
@@ -21,6 +23,8 @@ public class RoleService(ApplicationDbContext context) : IRoleService
 
     public async Task<Role> CreateAsync(Guid serverId, string name, long permissions, int position = 0, string? color = null, bool isDefault = false)
     {
+        await ThrowIfCantManagePositionAsync(serverId, position);
+
         if (isDefault)
         {
             var existingDefault = await context.Roles.FirstOrDefaultAsync(r => r.ServerId == serverId && r.IsDefault);
@@ -51,6 +55,9 @@ public class RoleService(ApplicationDbContext context) : IRoleService
         var role = await context.Roles.FindAsync(roleId);
         if (role is null) return null;
 
+        var targetPosition = position ?? role.Position;
+        await ThrowIfCantManagePositionAsync(role.ServerId, targetPosition);
+
         if (name is not null) role.Name = name;
         if (permissions.HasValue) role.Permissions = permissions.Value;
         if (position.HasValue) role.Position = position.Value;
@@ -73,6 +80,8 @@ public class RoleService(ApplicationDbContext context) : IRoleService
         var role = await context.Roles.FindAsync(roleId);
         if (role is null) return false;
 
+        await ThrowIfCantManagePositionAsync(role.ServerId, role.Position);
+
         context.Roles.Remove(role);
         await context.SaveChangesAsync();
         return true;
@@ -80,6 +89,14 @@ public class RoleService(ApplicationDbContext context) : IRoleService
 
     public async Task AssignRoleToMemberAsync(Guid memberId, Guid roleId)
     {
+        var role = await context.Roles.FindAsync(roleId);
+        if (role is null) throw new NotFoundException("Role not found.");
+
+        var member = await context.ServerMembers.FindAsync(memberId);
+        if (member is null) throw new NotFoundException("Member not found.");
+
+        await ThrowIfCantManagePositionAsync(member.ServerId, role.Position);
+
         var existing = await context.MemberRoles.FirstOrDefaultAsync(mr => mr.MemberId == memberId && mr.RoleId == roleId);
         if (existing is not null) return;
 
@@ -94,6 +111,14 @@ public class RoleService(ApplicationDbContext context) : IRoleService
 
     public async Task RemoveRoleFromMemberAsync(Guid memberId, Guid roleId)
     {
+        var role = await context.Roles.FindAsync(roleId);
+        if (role is null) throw new NotFoundException("Role not found.");
+
+        var member = await context.ServerMembers.FindAsync(memberId);
+        if (member is null) throw new NotFoundException("Member not found.");
+
+        await ThrowIfCantManagePositionAsync(member.ServerId, role.Position);
+
         var memberRole = await context.MemberRoles.FirstOrDefaultAsync(mr => mr.MemberId == memberId && mr.RoleId == roleId);
         if (memberRole is not null)
         {
@@ -114,6 +139,60 @@ public class RoleService(ApplicationDbContext context) : IRoleService
     {
         var permissions = await context.MemberRoles
             .Where(mr => mr.MemberId == memberId)
+            .Select(mr => mr.Role.Permissions)
+            .ToListAsync();
+
+        long effective = 0;
+        foreach (var perm in permissions)
+            effective |= perm;
+
+        return effective;
+    }
+
+    private async Task ThrowIfCantManagePositionAsync(Guid serverId, int targetPosition)
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return;
+
+        var isOwner = await context.Servers.AnyAsync(s => s.Id == serverId && s.OwnerId == userId);
+        if (isOwner) return;
+
+        var effectivePerms = await GetCurrentUserPermissionsAsync(serverId);
+        if ((effectivePerms & (long)Permission.Administrator) != 0) return;
+
+        var maxPosition = await GetCurrentUserMaxPositionAsync(serverId);
+        if (maxPosition <= targetPosition)
+            throw new UnauthorizedException("You cannot manage roles at or above your highest role.");
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var userIdClaim = httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return null;
+        return userId;
+    }
+
+    private async Task<int> GetCurrentUserMaxPositionAsync(Guid serverId)
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return -1;
+
+        return await context.ServerMembers
+            .Where(sm => sm.ServerId == serverId && sm.UserId == userId.Value)
+            .SelectMany(sm => sm.MemberRoles)
+            .Select(mr => mr.Role.Position)
+            .DefaultIfEmpty(-1)
+            .MaxAsync();
+    }
+
+    private async Task<long> GetCurrentUserPermissionsAsync(Guid serverId)
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return 0;
+
+        var permissions = await context.ServerMembers
+            .Where(sm => sm.ServerId == serverId && sm.UserId == userId.Value)
+            .SelectMany(sm => sm.MemberRoles)
             .Select(mr => mr.Role.Permissions)
             .ToListAsync();
 

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Backend.Data;
 using Backend.Models;
+using Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +15,7 @@ public class RequirePermissionAuthorizationHandler(
         AuthorizationHandlerContext context,
         RequirePermissionRequirement requirement)
     {
-        var userIdClaim = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userIdClaim = context.User.FindFirstValue(JwtService.NameIdentifierClaimType);
         if (userIdClaim is null) return;
 
         if (!Guid.TryParse(userIdClaim, out var userId)) return;
@@ -30,6 +31,15 @@ public class RequirePermissionAuthorizationHandler(
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var server = await db.Servers.FirstOrDefaultAsync(s => s.Id == serverId);
+        if (server is null) return;
+
+        if (server.OwnerId == userId)
+        {
+            context.Succeed(requirement);
+            return;
+        }
 
         var member = await db.ServerMembers
             .Include(sm => sm.MemberRoles)

@@ -11,6 +11,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ServerMember> ServerMembers => Set<ServerMember>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<MemberRole> MemberRoles => Set<MemberRole>();
+    public DbSet<ModerationLog> ModerationLogs => Set<ModerationLog>();
+    public DbSet<JoinRequest> JoinRequests => Set<JoinRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,5 +61,35 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.Entity<MemberRole>()
             .HasIndex(mr => new { mr.MemberId, mr.RoleId })
             .IsUnique();
+
+        modelBuilder.Entity<JoinRequest>()
+            .HasOne(jr => jr.Server)
+            .WithMany()
+            .HasForeignKey(jr => jr.ServerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ModerationLog>()
+            .HasOne(m => m.Server)
+            .WithMany()
+            .HasForeignKey(m => m.ServerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ModerationLog>()
+            .HasOne(m => m.Actor)
+            .WithMany()
+            .HasForeignKey(m => m.ActorId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<JoinRequest>()
+            .HasOne(jr => jr.Server)
+            .WithMany()
+            .HasForeignKey(jr => jr.ServerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<JoinRequest>()
+            .HasOne(jr => jr.User)
+            .WithMany()
+            .HasForeignKey(jr => jr.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

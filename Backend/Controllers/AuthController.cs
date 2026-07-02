@@ -1,5 +1,5 @@
-using System.ComponentModel.DataAnnotations;
 using Backend.Models;
+using Backend.Models.Requests;
 using Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -49,11 +49,3 @@ public class AuthController(IAuthService authService) : ControllerBase
         return Ok(ApiResponse<object>.NoContent());
     }
 }
-
-public record LoginRequest(
-    [Required, StringLength(32, MinimumLength = 3)] string UserName,
-    [Required, StringLength(128, MinimumLength = 6)] string Password);
-
-public record RefreshRequest(
-    [Required] string RefreshToken);
-public record TokenResponse(string AccessToken, string RefreshToken);

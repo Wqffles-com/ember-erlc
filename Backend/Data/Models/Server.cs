@@ -8,7 +8,7 @@ public class Server
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public string? Description { get; set; }
-    public string? RobloxServerId { get; set; }
+    public string? JoinCode { get; set; }
     public Guid OwnerId { get; set; }
     public ApplicationUser Owner { get; set; } = null!;
     public string? IconUrl { get; set; }
